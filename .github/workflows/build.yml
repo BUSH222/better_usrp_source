@@ -40,7 +40,7 @@ jobs:
           Write-Host "Using vcpkg at: $vcpkgCmd"
           Write-Host "Using vcpkg root: $vcpkgRoot"
 
-          & $vcpkgCmd install boost-headers:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+          & $vcpkgCmd install boost-core:x64-windows boost-utility:x64-windows boost-exception:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
           if ($LASTEXITCODE -ne 0) {
             throw "vcpkg install failed with exit code $LASTEXITCODE"
           }
