@@ -43,10 +43,12 @@ jobs:
           # Explicit Boost ports required by UHD headers on this CI image.
           $boostPorts = @(
             "boost-asio:x64-windows",
+            "boost-assert:x64-windows",
             "boost-bind:x64-windows",
             "boost-circular-buffer:x64-windows",
+            "boost-config:x64-windows",
             "boost-core:x64-windows",
-            "boost-current-function:x64-windows",
+            "boost-detail:x64-windows",
             "boost-exception:x64-windows",
             "boost-filesystem:x64-windows",
             "boost-foreach:x64-windows",
