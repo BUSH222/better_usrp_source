@@ -2,16 +2,15 @@ name: Build Module
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "main" ]
 
 jobs:
   build_windows:
-    # if: ${{ false }}  # takes too long for now ill turn back on later
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -40,7 +39,6 @@ jobs:
           Write-Host "Using vcpkg at: $vcpkgCmd"
           Write-Host "Using vcpkg root: $vcpkgRoot"
 
-          # Explicit Boost ports required by UHD headers on this CI image.
           $boostPorts = @(
             "boost-asio:x64-windows",
             "boost-assert:x64-windows",
@@ -84,7 +82,6 @@ jobs:
             throw "Boost headers were not found under $vcpkgInclude/boost"
           }
 
-          # Validate known UHD->Boost header requirements.
           $requiredBoostHeaders = @(
             "asio/buffer.hpp",
             "bind.hpp",
@@ -152,7 +149,6 @@ jobs:
             "PAGER_DECODER","RADIO","RYFI_DECODER","VOR_RECEIVER","WEATHER_SAT_DECODER",
             "DISCORD_PRESENCE","FREQUENCY_MANAGER","IQ_EXPORTER","RECORDER","RIGCTL_CLIENT","RIGCTL_SERVER","SCANNER","SCHEDULER"
           )
-
           $cmakeArgs = @(
             "-A", "x64",
             "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
@@ -204,7 +200,7 @@ jobs:
           cmake --build . --config Release --parallel 3
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: better_usrp_source_windows_amd64
           path: ${{ runner.workspace }}/build_module/Release/better_usrp_source.dll
@@ -214,7 +210,7 @@ jobs:
         os: [macos-15-intel, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -250,7 +246,7 @@ jobs:
           make VERBOSE=1 -j3
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: better_usrp_source_${{ matrix.os }}
           path: ${{runner.workspace}}/build_module/better_usrp_source.dylib
@@ -258,7 +254,7 @@ jobs:
   build_linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -291,7 +287,21 @@ jobs:
           make -j3
 
       - name: Save Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: better_usrp_source_linux_amd64
           path: ${{runner.workspace}}/build_module/better_usrp_source.so
+
+  update_latest_release:
+    needs: [build_windows, build_macos_universal, build_linux]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+
+    steps:
+      - name: Download All Builds
+        uses: actions/download-artifact@v8
+
+      - name: Update Latest Release
+        run: gh release upload latest ./**/*.{dll,dylib,so} -R ${{github.repository}} --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
