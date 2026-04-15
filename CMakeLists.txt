@@ -44,19 +44,19 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 if (MSVC)
     # UHD headers include Boost headers on Windows.
     find_path(_BOOST_INCLUDE_DIR
-        NAMES boost/config.hpp
+        NAMES boost/exception/diagnostic_information.hpp
         HINTS
+            "C:/vcpkg/installed/x64-windows/include"
             "$ENV{BOOST_ROOT}"
             "$ENV{BOOST_ROOT}/include"
             "$ENV{BOOST_ROOT_1_83_0}"
             "$ENV{BOOST_ROOT_1_83_0}/include"
-            "C:/vcpkg/installed/x64-windows/include"
             "C:/Program Files/PothosSDR/include"
     )
 
     if (NOT _BOOST_INCLUDE_DIR)
         message(FATAL_ERROR
-            "Boost headers not found. Install boost-core:x64-windows in vcpkg or set BOOST_ROOT so boost/config.hpp can be found."
+            "Boost exception headers not found. Install boost-exception:x64-windows in vcpkg or set BOOST_ROOT so boost/exception/diagnostic_information.hpp can be found."
         )
     endif ()
 
