@@ -295,7 +295,7 @@ jobs:
   update_latest_release:
     needs: [build_windows, build_macos_universal, build_linux]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
 
@@ -304,6 +304,12 @@ jobs:
         uses: actions/download-artifact@v8
 
       - name: Update Latest Release
-        run: gh release upload latest ./**/*.{dll,dylib,so} -R ${{github.repository}} --clobber
+        run: |
+          mkdir release_files
+          cp better_usrp_source_windows_amd64/* release_files/better_usrp_source_windows_amd64.dll
+          cp better_usrp_source_macos-15-intel/* release_files/better_usrp_source_macos-15-intel.dylib
+          cp better_usrp_source_macos-15/* release_files/better_usrp_source_macos-15.dylib
+          cp better_usrp_source_linux_amd64/* release_files/better_usrp_source_linux_amd64.so
+          gh release upload latest --clobber -R ${{github.repository}} release_files/*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
