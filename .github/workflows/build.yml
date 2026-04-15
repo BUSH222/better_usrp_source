@@ -1,0 +1,197 @@
+name: Build Module
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  build_windows:
+    # if: ${{ false }}  # takes too long for now ill turn back on later
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure SDR++ Core is present
+        shell: pwsh
+        run: |
+          if (!(Test-Path "lib/SDRPlusPlus/CMakeLists.txt")) {
+            Remove-Item -Recurse -Force lib/SDRPlusPlus -ErrorAction SilentlyContinue
+            git clone https://github.com/AlexandreRouma/SDRPlusPlus.git lib/SDRPlusPlus
+          }
+
+      - name: Create Build Environment
+        run: |
+          cmake -E make_directory ${{ runner.workspace }}/build_sdrpp
+          cmake -E make_directory ${{ runner.workspace }}/build_module
+
+      - name: Install minimal Windows dependencies
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://downloads.myriadrf.org/builds/PothosSDR/PothosSDR-2020.01.26-vc14-x64.exe" -OutFile "$env:RUNNER_WORKSPACE/pothos.exe"
+          New-Item -ItemType Directory -Path "C:/Program Files/PothosSDR" -Force | Out-Null
+          7z x "$env:RUNNER_WORKSPACE/pothos.exe" "-oC:/Program Files/PothosSDR/" | Out-Null
+          vcpkg install fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+          if (!(Test-Path "C:/Program Files/PothosSDR/include/volk/volk.h")) {
+            throw "GNU Radio VOLK headers were not found under C:/Program Files/PothosSDR/include/volk"
+          }
+
+      - name: Build SDR++ Core (Minimal)
+        working-directory: ${{ runner.workspace }}/build_sdrpp
+        shell: pwsh
+        run: |
+          $offModules = @(
+            "AIRSPY_SOURCE","AIRSPYHF_SOURCE","AUDIO_SOURCE","BADGESDR_SOURCE","BLADERF_SOURCE","DRAGONLABS_SOURCE",
+            "FILE_SOURCE","FOBOSSDR_SOURCE","HACKRF_SOURCE","HAROGIC_SOURCE","HERMES_SOURCE","HYDRASDR_SOURCE",
+            "KCSDR_SOURCE","LIMESDR_SOURCE","NETWORK_SOURCE","PERSEUS_SOURCE","PLUTOSDR_SOURCE","RFNM_SOURCE",
+            "RFSPACE_SOURCE","RTL_SDR_SOURCE","RTL_TCP_SOURCE","SDDC_SOURCE","SDRPP_SERVER_SOURCE","SDRPLAY_SOURCE",
+            "SOAPY_SOURCE","SPECTRAN_SOURCE","SPECTRAN_HTTP_SOURCE","SPYSERVER_SOURCE","USRP_SOURCE",
+            "ANDROID_AUDIO_SINK","AUDIO_SINK","NETWORK_SINK","NEW_PORTAUDIO_SINK","PORTAUDIO_SINK",
+            "ATV_DECODER","DAB_DECODER","FALCON9_DECODER","KG_SSTV_DECODER","M17_DECODER","METEOR_DEMODULATOR",
+            "PAGER_DECODER","RADIO","RYFI_DECODER","VOR_RECEIVER","WEATHER_SAT_DECODER",
+            "DISCORD_PRESENCE","FREQUENCY_MANAGER","IQ_EXPORTER","RECORDER","RIGCTL_CLIENT","RIGCTL_SERVER","SCANNER","SCHEDULER"
+          )
+
+          $cmakeArgs = @(
+            "-A", "x64",
+            "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+            "-DOPT_BACKEND_GLFW=ON",
+            "-DOPT_BACKEND_ANDROID=OFF"
+          )
+          $cmakeArgs += $offModules | ForEach-Object { "-DOPT_BUILD_$($_)=OFF" }
+          $cmakeArgs += "${{ github.workspace }}/lib/SDRPlusPlus"
+
+          cmake @cmakeArgs
+          cmake --build . --config Release --target sdrpp_core --parallel 3
+
+      - name: Build the better usrp source module
+        working-directory: ${{ runner.workspace }}/build_module
+        shell: pwsh
+        run: |
+          $coreImportLib = Get-ChildItem -Path "${{ runner.workspace }}/build_sdrpp" -Recurse -Filter "sdrpp_core.lib" | Select-Object -First 1
+          if (-not $coreImportLib) {
+            throw "Could not find sdrpp_core.lib under ${{ runner.workspace }}/build_sdrpp"
+          }
+          $coreLibDir = $coreImportLib.DirectoryName.Replace('\\', '/')
+
+          $coreDll = Get-ChildItem -Path "${{ runner.workspace }}/build_sdrpp" -Recurse -Filter "sdrpp_core.dll" | Select-Object -First 1
+          $coreDllDir = ""
+          if ($coreDll) {
+            $coreDllDir = $coreDll.DirectoryName.Replace('\\', '/')
+          }
+
+          Write-Host "Using sdrpp_core import lib: $($coreImportLib.FullName)"
+
+          $cmakeArgs = @(
+            "-A", "x64",
+            "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+            "-DCMAKE_PREFIX_PATH=C:/vcpkg/installed/x64-windows",
+            "-DSDRPP_CORE_ROOT=${{ github.workspace }}/lib/SDRPlusPlus",
+            "-DSDRPP_CORE_LIB_DIR=$coreLibDir",
+            "-DSDRPP_MODULE_COMPILER_FLAGS=/O2;/Ob2;/std:c++17;/EHsc;/IC:/vcpkg/installed/x64-windows/include;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src/imgui"
+          )
+
+          if ($coreDllDir -ne "") {
+            $cmakeArgs += "-DSDRPP_CORE_DLL_DIR=$coreDllDir"
+          }
+
+          $cmakeArgs += "${{ github.workspace }}"
+          cmake @cmakeArgs
+
+          cmake --build . --config Release --parallel 3
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: better_usrp_source_windows_amd64
+          path: ${{ runner.workspace }}/build_module/Release/better_usrp_source.dll
+  build_macos_universal:
+    strategy:
+      matrix:
+        os: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure SDR++ Core is present
+        run: |
+          if [ ! -f "lib/SDRPlusPlus/CMakeLists.txt" ]; then
+            rm -rf lib/SDRPlusPlus
+            git clone https://github.com/AlexandreRouma/SDRPlusPlus.git lib/SDRPlusPlus
+          fi
+          
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{runner.workspace}}/build_sdrpp && cmake -E make_directory ${{runner.workspace}}/build_module
+
+      - name: Install dependencies
+        run: brew install pkg-config libusb fftw glfw portaudio zstd spdlog uhd && pip3 install mako --break-system-packages
+
+      - name: Install volk
+        run: git clone --recursive https://github.com/gnuradio/volk && cd volk && mkdir build && cd build && cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DCMAKE_BUILD_TYPE=Release .. && make -j3 && sudo make install
+
+      - name: Build SDR++ Core (Minimal)
+        working-directory: ${{runner.workspace}}/build_sdrpp
+        run: |
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+          cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 ${{github.workspace}}/lib/SDRPlusPlus -DOPT_BUILD_AIRSPY_SOURCE=OFF -DOPT_BUILD_AIRSPYHF_SOURCE=OFF -DOPT_BUILD_AUDIO_SOURCE=OFF -DOPT_BUILD_BLADERF_SOURCE=OFF -DOPT_BUILD_FILE_SOURCE=OFF -DOPT_BUILD_FOBOSSDR_SOURCE=OFF -DOPT_BUILD_HACKRF_SOURCE=OFF -DOPT_BUILD_HAROGIC_SOURCE=OFF -DOPT_BUILD_HERMES_SOURCE=OFF -DOPT_BUILD_KCSDR_SOURCE=OFF -DOPT_BUILD_LIMESDR_SOURCE=OFF -DOPT_BUILD_NETWORK_SOURCE=OFF -DOPT_BUILD_PERSEUS_SOURCE=OFF -DOPT_BUILD_PLUTOSDR_SOURCE=OFF -DOPT_BUILD_RFNM_SOURCE=OFF -DOPT_BUILD_RFSPACE_SOURCE=OFF -DOPT_BUILD_RTL_SDR_SOURCE=OFF -DOPT_BUILD_RTL_TCP_SOURCE=OFF -DOPT_BUILD_SDRPLAY_SOURCE=OFF -DOPT_BUILD_SDRPP_SERVER_SOURCE=OFF -DOPT_BUILD_SOAPY_SOURCE=OFF -DOPT_BUILD_SPECTRAN_SOURCE=OFF -DOPT_BUILD_SPECTRAN_HTTP_SOURCE=OFF -DOPT_BUILD_SPYSERVER_SOURCE=OFF -DOPT_BUILD_USRP_SOURCE=OFF -DOPT_BUILD_ANDROID_AUDIO_SINK=OFF -DOPT_BUILD_AUDIO_SINK=OFF -DOPT_BUILD_NETWORK_SINK=OFF -DOPT_BUILD_NEW_PORTAUDIO_SINK=OFF -DOPT_BUILD_PORTAUDIO_SINK=OFF -DOPT_BUILD_ATV_DECODER=OFF -DOPT_BUILD_DAB_DECODER=OFF -DOPT_BUILD_FALCON9_DECODER=OFF -DOPT_BUILD_KGSSTV_DECODER=OFF -DOPT_BUILD_M17_DECODER=OFF -DOPT_BUILD_METEOR_DEMODULATOR=OFF -DOPT_BUILD_PAGER_DECODER=OFF -DOPT_BUILD_RADIO=OFF -DOPT_BUILD_VOR_RECEIVER=OFF -DOPT_BUILD_WEATHER_SAT_DECODER=OFF -DOPT_BUILD_DISCORD_PRESENCE=OFF -DOPT_BUILD_FREQUENCY_MANAGER=OFF -DOPT_BUILD_IQ_EXPORTER=OFF -DOPT_BUILD_RECORDER=OFF -DOPT_BUILD_RIGCTL_CLIENT=OFF -DOPT_BUILD_RIGCTL_SERVER=OFF -DOPT_BUILD_SCANNER=OFF -DOPT_BUILD_SCHEDULER=OFF
+          make sdrpp_core -j3
+          sudo make install
+
+      - name: Build the better usrp source module
+        working-directory: ${{runner.workspace}}/build_module
+        run: |
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+          cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 ${{github.workspace}} -DSDRPP_CORE_ROOT=${{github.workspace}}/lib/SDRPlusPlus "-DSDRPP_MODULE_COMPILER_FLAGS=-O3;-std=c++17;-I/opt/homebrew/include;-I/usr/local/include;-I${{github.workspace}}/lib/SDRPlusPlus/core/src/imgui"
+          make VERBOSE=1 -j3
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: better_usrp_source_${{ matrix.os }}
+          path: ${{runner.workspace}}/build_module/better_usrp_source.dylib
+
+  build_linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure SDR++ Core is present
+        run: |
+          if [ ! -f "lib/SDRPlusPlus/CMakeLists.txt" ]; then
+            rm -rf lib/SDRPlusPlus
+            git clone https://github.com/AlexandreRouma/SDRPlusPlus.git lib/SDRPlusPlus
+          fi
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git libfftw3-dev libglfw3-dev libvolk-dev libzstd-dev portaudio19-dev libspdlog-dev libuhd-dev
+          
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{runner.workspace}}/build_sdrpp && cmake -E make_directory ${{runner.workspace}}/build_module
+
+      - name: Build SDR++ Core (Minimal)
+        working-directory: ${{runner.workspace}}/build_sdrpp
+        run: |
+          cmake ${{github.workspace}}/lib/SDRPlusPlus -DOPT_BUILD_AIRSPY_SOURCE=OFF -DOPT_BUILD_AIRSPYHF_SOURCE=OFF -DOPT_BUILD_AUDIO_SOURCE=OFF -DOPT_BUILD_BLADERF_SOURCE=OFF -DOPT_BUILD_FILE_SOURCE=OFF -DOPT_BUILD_FOBOSSDR_SOURCE=OFF -DOPT_BUILD_HACKRF_SOURCE=OFF -DOPT_BUILD_HAROGIC_SOURCE=OFF -DOPT_BUILD_HERMES_SOURCE=OFF -DOPT_BUILD_KCSDR_SOURCE=OFF -DOPT_BUILD_LIMESDR_SOURCE=OFF -DOPT_BUILD_NETWORK_SOURCE=OFF -DOPT_BUILD_PERSEUS_SOURCE=OFF -DOPT_BUILD_PLUTOSDR_SOURCE=OFF -DOPT_BUILD_RFNM_SOURCE=OFF -DOPT_BUILD_RFSPACE_SOURCE=OFF -DOPT_BUILD_RTL_SDR_SOURCE=OFF -DOPT_BUILD_RTL_TCP_SOURCE=OFF -DOPT_BUILD_SDRPLAY_SOURCE=OFF -DOPT_BUILD_SDRPP_SERVER_SOURCE=OFF -DOPT_BUILD_SOAPY_SOURCE=OFF -DOPT_BUILD_SPECTRAN_SOURCE=OFF -DOPT_BUILD_SPECTRAN_HTTP_SOURCE=OFF -DOPT_BUILD_SPYSERVER_SOURCE=OFF -DOPT_BUILD_USRP_SOURCE=OFF -DOPT_BUILD_ANDROID_AUDIO_SINK=OFF -DOPT_BUILD_AUDIO_SINK=OFF -DOPT_BUILD_NETWORK_SINK=OFF -DOPT_BUILD_NEW_PORTAUDIO_SINK=OFF -DOPT_BUILD_PORTAUDIO_SINK=OFF -DOPT_BUILD_ATV_DECODER=OFF -DOPT_BUILD_DAB_DECODER=OFF -DOPT_BUILD_FALCON9_DECODER=OFF -DOPT_BUILD_KGSSTV_DECODER=OFF -DOPT_BUILD_M17_DECODER=OFF -DOPT_BUILD_METEOR_DEMODULATOR=OFF -DOPT_BUILD_PAGER_DECODER=OFF -DOPT_BUILD_RADIO=OFF -DOPT_BUILD_VOR_RECEIVER=OFF -DOPT_BUILD_WEATHER_SAT_DECODER=OFF -DOPT_BUILD_DISCORD_PRESENCE=OFF -DOPT_BUILD_FREQUENCY_MANAGER=OFF -DOPT_BUILD_IQ_EXPORTER=OFF -DOPT_BUILD_RECORDER=OFF -DOPT_BUILD_RIGCTL_CLIENT=OFF -DOPT_BUILD_RIGCTL_SERVER=OFF -DOPT_BUILD_SCANNER=OFF -DOPT_BUILD_SCHEDULER=OFF
+          make sdrpp_core -j3
+          sudo make install
+
+      - name: Build the better usrp source module
+        working-directory: ${{runner.workspace}}/build_module
+        run: |
+          cmake ${{github.workspace}} -DSDRPP_CORE_ROOT=${{github.workspace}}/lib/SDRPlusPlus "-DSDRPP_MODULE_COMPILER_FLAGS=-O3;-std=c++17"
+          make -j3
+
+      - name: Save Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: better_usrp_source_linux_amd64
+          path: ${{runner.workspace}}/build_module/better_usrp_source.so
