@@ -34,7 +34,10 @@ jobs:
           Invoke-WebRequest -Uri "https://downloads.myriadrf.org/builds/PothosSDR/PothosSDR-2020.01.26-vc14-x64.exe" -OutFile "$env:RUNNER_WORKSPACE/pothos.exe"
           New-Item -ItemType Directory -Path "C:/Program Files/PothosSDR" -Force | Out-Null
           7z x "$env:RUNNER_WORKSPACE/pothos.exe" "-oC:/Program Files/PothosSDR/" | Out-Null
-          vcpkg install boost-exception:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+          vcpkg install boost-headers:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+          if (!(Test-Path "C:/vcpkg/installed/x64-windows/include/boost/operators.hpp")) {
+            throw "Boost headers were not found under C:/vcpkg/installed/x64-windows/include/boost"
+          }
           if (!(Test-Path "C:/vcpkg/installed/x64-windows/include/boost/exception/diagnostic_information.hpp")) {
             throw "Boost exception headers were not found under C:/vcpkg/installed/x64-windows/include/boost/exception"
           }
