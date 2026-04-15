@@ -13,6 +13,8 @@
 #include <utils/optionlist.h>
 #include <utils/freq_formatting.h>
 
+#include <algorithm>
+
 #define CONCAT(a, b) ((std::string(a) + b).c_str())
 
 SDRPP_MOD_INFO{
@@ -159,7 +161,7 @@ public:
                 if (sr.step() == 0 && sr.start() == sr.stop()) {
                     samplerates.define(sr.start(), utils::formatFreq(sr.start()), sr.start());
                 } else if (sr.step() == 0) {
-                    for (double s = std::max(sr.start(), 1e6); s < sr.stop(); s += 1e6) {
+                    for (double s = (std::max)(sr.start(), 1e6); s < sr.stop(); s += 1e6) {
                         samplerates.define(s, utils::formatFreq(s), s);
                     }
                     samplerates.define(sr.stop(), utils::formatFreq(sr.stop()), sr.stop());

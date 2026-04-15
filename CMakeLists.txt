@@ -42,6 +42,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 if (MSVC)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX)
+
     # UHD headers include Boost headers on Windows.
     find_path(_BOOST_INCLUDE_DIR
         NAMES boost/operators.hpp
