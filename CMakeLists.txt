@@ -42,13 +42,27 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 if (MSVC)
-    # Use Boost from the GitHub Actions environment if available to satisfy UHD header requirements
-    if (DEFINED ENV{BOOST_ROOT_1_83_0})
-        target_include_directories(${PROJECT_NAME} PRIVATE 
-            "$ENV{BOOST_ROOT_1_83_0}" 
+    # UHD headers include Boost headers on Windows.
+    find_path(_BOOST_INCLUDE_DIR
+        NAMES boost/config.hpp
+        HINTS
+            "$ENV{BOOST_ROOT}"
+            "$ENV{BOOST_ROOT}/include"
+            "$ENV{BOOST_ROOT_1_83_0}"
             "$ENV{BOOST_ROOT_1_83_0}/include"
+            "C:/vcpkg/installed/x64-windows/include"
+            "C:/Program Files/PothosSDR/include"
+    )
+
+    if (NOT _BOOST_INCLUDE_DIR)
+        message(FATAL_ERROR
+            "Boost headers not found. Install boost-core:x64-windows in vcpkg or set BOOST_ROOT so boost/config.hpp can be found."
         )
-    endif()
+    endif ()
+
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        "${_BOOST_INCLUDE_DIR}"
+    )
 
     # On Windows CI, SDR++ core headers pull GNU Radio VOLK headers from PothosSDR.
     target_include_directories(${PROJECT_NAME} PRIVATE
