@@ -34,17 +34,28 @@ jobs:
           Invoke-WebRequest -Uri "https://downloads.myriadrf.org/builds/PothosSDR/PothosSDR-2020.01.26-vc14-x64.exe" -OutFile "$env:RUNNER_WORKSPACE/pothos.exe"
           New-Item -ItemType Directory -Path "C:/Program Files/PothosSDR" -Force | Out-Null
           7z x "$env:RUNNER_WORKSPACE/pothos.exe" "-oC:/Program Files/PothosSDR/" | Out-Null
-          vcpkg install boost:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+
+          $vcpkgCmd = (Get-Command vcpkg -ErrorAction Stop).Source
+          $vcpkgRoot = (Split-Path -Parent $vcpkgCmd).Replace('\\', '/')
+          Write-Host "Using vcpkg at: $vcpkgCmd"
+          Write-Host "Using vcpkg root: $vcpkgRoot"
+
+          & $vcpkgCmd install boost-headers:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
           if ($LASTEXITCODE -ne 0) {
             throw "vcpkg install failed with exit code $LASTEXITCODE"
           }
-          if (!(Test-Path "C:/vcpkg/installed/x64-windows/include/boost/operators.hpp")) {
-            throw "Boost headers were not found under C:/vcpkg/installed/x64-windows/include/boost"
+
+          $vcpkgInclude = "$vcpkgRoot/installed/x64-windows/include"
+          if (!(Test-Path "$vcpkgInclude/boost/operators.hpp")) {
+            throw "Boost headers were not found under $vcpkgInclude/boost"
           }
-          if (!(Test-Path "C:/vcpkg/installed/x64-windows/include/boost/exception/diagnostic_information.hpp")) {
-            throw "Boost exception headers were not found under C:/vcpkg/installed/x64-windows/include/boost/exception"
+          if (!(Test-Path "$vcpkgInclude/boost/exception/diagnostic_information.hpp")) {
+            throw "Boost exception headers were not found under $vcpkgInclude/boost/exception"
           }
-          "BOOST_ROOT=C:/vcpkg/installed/x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BOOST_ROOT=$vcpkgRoot/installed/x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
           if (!(Test-Path "C:/Program Files/PothosSDR/include/volk/volk.h")) {
             throw "GNU Radio VOLK headers were not found under C:/Program Files/PothosSDR/include/volk"
           }
@@ -67,7 +78,7 @@ jobs:
 
           $cmakeArgs = @(
             "-A", "x64",
-            "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
             "-DOPT_BACKEND_GLFW=ON",
             "-DOPT_BACKEND_ANDROID=OFF"
           )
@@ -95,13 +106,15 @@ jobs:
 
           Write-Host "Using sdrpp_core import lib: $($coreImportLib.FullName)"
 
+          $vcpkgInclude = "$env:VCPKG_ROOT/installed/x64-windows/include"
+
           $cmakeArgs = @(
             "-A", "x64",
-            "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
-            "-DCMAKE_PREFIX_PATH=C:/vcpkg/installed/x64-windows",
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
+            "-DCMAKE_PREFIX_PATH=$env:VCPKG_ROOT/installed/x64-windows",
             "-DSDRPP_CORE_ROOT=${{ github.workspace }}/lib/SDRPlusPlus",
             "-DSDRPP_CORE_LIB_DIR=$coreLibDir",
-            "-DSDRPP_MODULE_COMPILER_FLAGS=/O2;/Ob2;/std:c++17;/EHsc;/IC:/vcpkg/installed/x64-windows/include;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src/imgui"
+            "-DSDRPP_MODULE_COMPILER_FLAGS=/O2;/Ob2;/std:c++17;/EHsc;/I$vcpkgInclude;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src/imgui"
           )
 
           if ($coreDllDir -ne "") {

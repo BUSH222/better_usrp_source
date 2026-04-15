@@ -181,9 +181,9 @@ public:
 
         // List antennas
         antennas.clear();
-        auto ants = dev->get_rx_antennas(chanId);
-        for (const auto& a : ants) {
-            antennas.define(a,a,a);
+        auto antennaList = dev->get_rx_antennas(chanId);
+        for (const auto& antennaName : antennaList) {
+            antennas.define(antennaName, antennaName, antennaName);
         }
 
         // Get gain range
