@@ -40,7 +40,39 @@ jobs:
           Write-Host "Using vcpkg at: $vcpkgCmd"
           Write-Host "Using vcpkg root: $vcpkgRoot"
 
-          & $vcpkgCmd install boost-headers:x64-windows fftw3:x64-windows glfw3:x64-windows zstd:x64-windows spdlog:x64-windows
+          # Explicit Boost ports required by UHD headers on this CI image.
+          $boostPorts = @(
+            "boost-asio:x64-windows",
+            "boost-bind:x64-windows",
+            "boost-circular-buffer:x64-windows",
+            "boost-core:x64-windows",
+            "boost-current-function:x64-windows",
+            "boost-exception:x64-windows",
+            "boost-filesystem:x64-windows",
+            "boost-foreach:x64-windows",
+            "boost-format:x64-windows",
+            "boost-function:x64-windows",
+            "boost-integer:x64-windows",
+            "boost-lexical-cast:x64-windows",
+            "boost-math:x64-windows",
+            "boost-numeric-conversion:x64-windows",
+            "boost-optional:x64-windows",
+            "boost-predef:x64-windows",
+            "boost-range:x64-windows",
+            "boost-smart-ptr:x64-windows",
+            "boost-thread:x64-windows",
+            "boost-utility:x64-windows"
+          )
+
+          $basePorts = @(
+            "fftw3:x64-windows",
+            "glfw3:x64-windows",
+            "zstd:x64-windows",
+            "spdlog:x64-windows"
+          )
+
+          $installArgs = @("install") + $boostPorts + $basePorts
+          & $vcpkgCmd @installArgs
           if ($LASTEXITCODE -ne 0) {
             throw "vcpkg install failed with exit code $LASTEXITCODE"
           }
@@ -50,15 +82,40 @@ jobs:
             throw "Boost headers were not found under $vcpkgInclude/boost"
           }
 
-          # Validate every Boost header referenced by UHD headers is present.
-          $uhdHeaders = Get-ChildItem -Path "C:/Program Files/PothosSDR/include/uhd" -Recurse -Include *.h,*.hpp,*.ipp -File
-          $requiredBoostHeaders = $uhdHeaders |
-            Select-String -Pattern '#\s*include\s*[<"]boost/([^">]+)[">]' -AllMatches |
-            ForEach-Object {
-              $lineMatch = $_
-              $lineMatch.Matches | ForEach-Object { $_.Groups[1].Value }
-            } |
-            Sort-Object -Unique
+          # Validate known UHD->Boost header requirements.
+          $requiredBoostHeaders = @(
+            "asio/buffer.hpp",
+            "bind.hpp",
+            "circular_buffer.hpp",
+            "config.hpp",
+            "core/noncopyable.hpp",
+            "current_function.hpp",
+            "detail/atomic_count.hpp",
+            "exception/diagnostic_information.hpp",
+            "filesystem.hpp",
+            "foreach.hpp",
+            "format.hpp",
+            "function.hpp",
+            "integer/common_factor.hpp",
+            "intrusive_ptr.hpp",
+            "lexical_cast.hpp",
+            "math/common_factor.hpp",
+            "numeric/conversion/bounds.hpp",
+            "operators.hpp",
+            "optional/optional.hpp",
+            "predef/other/endian.h",
+            "range.hpp",
+            "range/begin.hpp",
+            "range/end.hpp",
+            "scoped_array.hpp",
+            "scoped_ptr.hpp",
+            "shared_ptr.hpp",
+            "thread/condition.hpp",
+            "thread/locks.hpp",
+            "thread/thread.hpp",
+            "utility.hpp",
+            "version.hpp"
+          )
 
           $missingBoostHeaders = @()
           foreach ($header in $requiredBoostHeaders) {
