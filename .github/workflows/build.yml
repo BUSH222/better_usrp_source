@@ -89,6 +89,7 @@ jobs:
             "-A", "x64",
             "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
             "-DCMAKE_PREFIX_PATH=C:/vcpkg/installed/x64-windows",
+            "-DBOOST_ROOT=$env:BOOST_ROOT_1_83_0",
             "-DSDRPP_CORE_ROOT=${{ github.workspace }}/lib/SDRPlusPlus",
             "-DSDRPP_CORE_LIB_DIR=$coreLibDir",
             "-DSDRPP_MODULE_COMPILER_FLAGS=/O2;/Ob2;/std:c++17;/EHsc;/IC:/vcpkg/installed/x64-windows/include;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src;/I${{ github.workspace }}/lib/SDRPlusPlus/core/src/imgui"
